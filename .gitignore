@@ -6,3 +6,4 @@ __pycache__/
 .idea/
 .vscode/
 logs/
+bot_state.json

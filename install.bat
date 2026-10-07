@@ -43,8 +43,8 @@ echo   Installation complete!
 echo ========================================
 echo.
 echo Next steps:
-echo   1. Edit .env file and add your TELEGRAM_BOT_TOKEN
-echo   2. Edit users.json with your credentials
+echo   1. Copy .env.example to .env and add your TELEGRAM_BOT_TOKEN
+echo   2. Create users.json with logins, passwords and Telegram @usernames
 echo   3. Run start.bat to launch
 echo.
 pause
