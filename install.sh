@@ -54,12 +54,20 @@ as_user "$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
 echo "[5/6] Installing Chromium and its system libraries..."
 "$APP_DIR/venv/bin/playwright" install-deps chromium
 # Some networks can't reach Playwright's CDN (downloads hang); Google's own
-# servers usually work, so fall back to installing Google Chrome from there.
+# servers usually work, so fall back to Google Chrome installed from there.
+# The .deb is installed directly because `playwright install chrome` also
+# fetches FFmpeg from the same unreachable CDN.
 BROWSER_CHANNEL=""
-if ! as_user env PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=60000 \
+if command -v google-chrome >/dev/null; then
+    echo "Google Chrome is already installed, using it."
+    BROWSER_CHANNEL=chrome
+elif ! as_user env PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=60000 \
         "$APP_DIR/venv/bin/playwright" install chromium; then
     echo "[WARN] Chromium download failed, installing Google Chrome instead..."
-    "$APP_DIR/venv/bin/playwright" install chrome
+    curl -fL -o /tmp/google-chrome.deb \
+        https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+    apt-get install -y -q /tmp/google-chrome.deb
+    rm -f /tmp/google-chrome.deb
     BROWSER_CHANNEL=chrome
 fi
 
