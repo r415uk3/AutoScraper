@@ -118,6 +118,8 @@ class Config:
     alert_repeat_interval: int = 3600
     active_days: frozenset[int] = frozenset(range(1, 7))
     active_hours: tuple[dtime, dtime] | None = (dtime(7, 30), dtime(21, 30))
+    # Empty = Playwright's bundled Chromium; "chrome" = installed Google Chrome.
+    browser_channel: str = ""
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -129,6 +131,7 @@ class Config:
             alert_repeat_interval=env_int("ALERT_REPEAT_INTERVAL", cls.alert_repeat_interval),
             active_days=parse_days(os.getenv("ACTIVE_DAYS", "1-6")),
             active_hours=parse_hours(os.getenv("ACTIVE_HOURS", "07:30-21:30")),
+            browser_channel=os.getenv("BROWSER_CHANNEL", "").strip(),
         )
 
 
@@ -781,6 +784,7 @@ async def main():
                 try:
                     async with async_playwright() as pw:
                         browser = await pw.chromium.launch(
+                            channel=cfg.browser_channel or None,
                             headless=True,
                             args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
                         )

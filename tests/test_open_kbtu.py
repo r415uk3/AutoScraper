@@ -46,7 +46,7 @@ def test_env_int(monkeypatch):
 
 def test_config_defaults_from_empty_env(monkeypatch):
     for name in ("REFRESH_INTERVAL", "RETRY_DELAY", "MAX_RETRY_DELAY", "LOGIN_MAX_ATTEMPTS",
-                 "ALERT_REPEAT_INTERVAL", "ACTIVE_DAYS", "ACTIVE_HOURS"):
+                 "ALERT_REPEAT_INTERVAL", "ACTIVE_DAYS", "ACTIVE_HOURS", "BROWSER_CHANNEL"):
         monkeypatch.delenv(name, raising=False)
     assert ok.Config.from_env() == ok.Config()
 

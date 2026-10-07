@@ -20,7 +20,18 @@ echo "[1/6] Setting timezone to Asia/Almaty (ACTIVE_HOURS uses local time)..."
 timedatectl set-timezone Asia/Almaty 2>/dev/null \
     || ln -sf /usr/share/zoneinfo/Asia/Almaty /etc/localtime
 
+# Some VPS hand out an IPv6 address with no working IPv6 route, so downloads
+# (Playwright's Chromium) and the portal hang. Prefer IPv4 when IPv6 is broken.
+if ! curl -6 -s -o /dev/null --max-time 10 https://dl.google.com \
+    && ! grep -q '^precedence ::ffff:0:0/96' /etc/gai.conf 2>/dev/null; then
+    echo "IPv6 is not working here, preferring IPv4."
+    echo 'precedence ::ffff:0:0/96  100' >> /etc/gai.conf
+fi
+
 echo "[2/6] Installing system packages..."
+# Fresh servers run unattended-upgrades on first boot; wait for its apt lock
+# instead of failing (also covers apt calls made by playwright install-deps).
+echo 'DPkg::Lock::Timeout "600";' > /etc/apt/apt.conf.d/99autoscraper-lock-wait
 apt-get update -q
 apt-get install -y -q python3 python3-venv python3-pip
 
@@ -42,7 +53,15 @@ as_user "$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
 
 echo "[5/6] Installing Chromium and its system libraries..."
 "$APP_DIR/venv/bin/playwright" install-deps chromium
-as_user "$APP_DIR/venv/bin/playwright" install chromium
+# Some networks can't reach Playwright's CDN (downloads hang); Google's own
+# servers usually work, so fall back to installing Google Chrome from there.
+BROWSER_CHANNEL=""
+if ! as_user env PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=60000 \
+        "$APP_DIR/venv/bin/playwright" install chromium; then
+    echo "[WARN] Chromium download failed, installing Google Chrome instead..."
+    "$APP_DIR/venv/bin/playwright" install chrome
+    BROWSER_CHANNEL=chrome
+fi
 
 echo "[6/6] Installing systemd service..."
 cat > /etc/systemd/system/autoscraper.service <<EOF
@@ -54,6 +73,7 @@ Wants=network-online.target
 [Service]
 User=$APP_USER
 WorkingDirectory=$APP_DIR
+${BROWSER_CHANNEL:+Environment=BROWSER_CHANNEL=$BROWSER_CHANNEL}
 ExecStart=$APP_DIR/venv/bin/python open_kbtu.py
 Restart=always
 RestartSec=30
