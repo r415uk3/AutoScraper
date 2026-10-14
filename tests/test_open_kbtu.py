@@ -241,6 +241,60 @@ def test_run_forever_backs_off_and_notifies_once(monkeypatch, tmp_path):
     assert tg.sent[-1] == "[u] Working again"
 
 
+class FakeContext:
+    async def new_page(self):
+        return object()
+
+    async def close(self):
+        pass
+
+
+class FakeContextBrowser(FakeBrowser):
+    def __init__(self):
+        super().__init__()
+        self.contexts = 0
+
+    async def new_context(self, **kwargs):
+        self.contexts += 1
+        return FakeContext()
+
+
+def test_portal_timeouts_restart_page_and_alert(monkeypatch, tmp_path):
+    runner, tg = make_runner(tmp_path)
+    browser = FakeContextBrowser()
+    naps = []
+
+    async def timing_out(page):
+        raise ok.PlaywrightTimeout("Timeout 30000ms exceeded")
+
+    async def runnable():
+        pass
+
+    async def fake_nap(delay):
+        naps.append(delay)
+        # The cap stops the test instead of hanging if timeouts are never escalated.
+        if (browser.contexts == 2 and len(naps) == 6) or len(naps) > 20:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(ok, "open_portal", timing_out)
+    monkeypatch.setattr(runner, "wait_until_runnable", runnable)
+    monkeypatch.setattr(runner, "nap", fake_nap)
+    with pytest.raises(asyncio.CancelledError):
+        run(runner.run_forever(browser))
+
+    # 3 timeouts per page, then a fresh page after the retry delay.
+    assert browser.contexts == 2
+    assert naps == [35, 35, 10, 35, 35, 20]
+    assert runner.portal_down_since is not None
+    since = f"{runner.portal_down_since:%H:%M}"
+    assert f"portal not loading since {since}" in runner.status
+    assert len(tg.sent) == 1 and f"since {since}" in tg.sent[0]
+
+    run(runner.mark_healthy())
+    assert runner.portal_down_since is None
+    assert tg.sent[-1] == "[u] Working again"
+
+
 def test_run_forever_escalates_when_browser_is_dead(monkeypatch, tmp_path):
     runner, tg = make_runner(tmp_path)
 

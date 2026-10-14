@@ -30,6 +30,8 @@ CHECK_IN_CAPTION = "Отметиться"
 
 # Long sleeps are split into chunks so the window is re-checked after the PC wakes from sleep.
 MAX_IDLE_CHUNK = 300
+# Page loads that time out in a row before the page is replaced and the user alerted.
+PORTAL_TIMEOUT_LIMIT = 3
 
 BASE_DIR = Path(__file__).parent
 LOG_DIR = BASE_DIR / "logs"
@@ -45,6 +47,10 @@ class LoginFailed(Exception):
 
 class BrowserDisconnected(Exception):
     """Raised when the shared browser has died and must be relaunched."""
+
+
+class PortalUnreachable(Exception):
+    """Raised when the portal keeps timing out, so a fresh page is opened."""
 
 
 def env_int(name: str, default: int) -> int:
@@ -435,6 +441,8 @@ class UserRunner:
         self.status = "starting"
         self.last_check: datetime | None = None
         self.last_marked: datetime | None = None
+        # When page loads started timing out; kept across fresh pages until one loads.
+        self.portal_down_since: datetime | None = None
 
     @property
     def paused(self) -> bool:
@@ -457,6 +465,7 @@ class UserRunner:
 
     async def mark_healthy(self):
         self.failures = 0
+        self.portal_down_since = None
         self.status = "working"
         await self.notifier.resolved("failing", "Working again")
 
@@ -488,6 +497,7 @@ class UserRunner:
         try:
             page = await context.new_page()
             refresh_count = 0
+            timeouts = 0
             while True:
                 await self.wait_until_runnable()
 
@@ -496,9 +506,21 @@ class UserRunner:
                 try:
                     await open_portal(page)
                 except PlaywrightTimeout:
-                    self.log.warning("Page load timed out, will retry next cycle")
+                    timeouts += 1
+                    self.portal_down_since = self.portal_down_since or datetime.now()
+                    if timeouts >= PORTAL_TIMEOUT_LIMIT:
+                        # Retrying in the same page can stay stuck for hours; fail so
+                        # run_forever opens a fresh page and alerts the user.
+                        raise PortalUnreachable(
+                            f"KBTU portal not loading since {self.portal_down_since:%H:%M}"
+                        )
+                    self.log.warning(
+                        "Page load timed out (%d/%d), will retry next cycle", timeouts, PORTAL_TIMEOUT_LIMIT
+                    )
                     await self.nap(self.cfg.refresh_interval)
                     continue
+                timeouts = 0
+                self.portal_down_since = None
 
                 if await login_form_visible(page):
                     self.log.info("Not logged in, logging in...")
@@ -540,6 +562,10 @@ class UserRunner:
                     self.log.error("%s. Retrying in %ds...", e, delay)
                     self.status = f"login failing, retrying in {delay}s"
                     text = f"{e}. If your password changed, send /password <new password>."
+                elif isinstance(e, PortalUnreachable):
+                    self.log.error("%s. Opening a fresh page in %ds...", e, delay)
+                    self.status = f"{e}, retrying in {delay}s"
+                    text = str(e)
                 else:
                     self.log.exception("Crashed: %s. Restarting in %ds...", e, delay)
                     self.status = f"error ({e}), retrying in {delay}s"
