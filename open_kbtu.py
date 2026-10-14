@@ -25,6 +25,8 @@ BUTTON_CAPTION = "span.v-button-caption"
 # Vaadin renders some empty, hidden caption spans before the real ones.
 VISIBLE_CAPTION = f"{BUTTON_CAPTION}:visible"
 PASSWORD_INPUT = "input[type='password']"
+# Vaadin adds this root element once the app has rendered.
+PORTAL_UI = "div.v-ui"
 LOGIN_CAPTIONS = ("Кіру", "Войти", "Login")
 CHECK_IN_CAPTION = "Отметиться"
 
@@ -331,9 +333,18 @@ class Notifier:
 
 
 async def open_portal(page):
-    """Load the portal and wait until the Vaadin UI has rendered its buttons."""
+    """Load the portal and wait until the Vaadin UI has rendered.
+
+    Raises PlaywrightTimeout only if the page or the UI doesn't load. Buttons are
+    waited for briefly: when there's no class to check in to, the logged-in page
+    has none.
+    """
     await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
-    await page.locator(VISIBLE_CAPTION).first.wait_for(state="visible", timeout=30_000)
+    await page.locator(PORTAL_UI).first.wait_for(state="visible", timeout=30_000)
+    try:
+        await page.locator(VISIBLE_CAPTION).first.wait_for(state="visible", timeout=10_000)
+    except PlaywrightTimeout:
+        pass
 
 
 async def login_form_visible(page) -> bool:

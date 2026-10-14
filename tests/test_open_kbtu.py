@@ -241,6 +241,46 @@ def test_run_forever_backs_off_and_notifies_once(monkeypatch, tmp_path):
     assert tg.sent[-1] == "[u] Working again"
 
 
+class FakeLocator:
+    def __init__(self, page, selector):
+        self.page, self.selector = page, selector
+
+    @property
+    def first(self):
+        return self
+
+    async def wait_for(self, state="visible", timeout=None):
+        self.page.waits.append(self.selector)
+        if self.selector not in self.page.rendered:
+            raise ok.PlaywrightTimeout(f"Timeout {timeout}ms exceeded")
+
+
+class FakePortalPage:
+    def __init__(self, *rendered):
+        self.rendered = set(rendered)
+        self.waits = []
+
+    async def goto(self, url, **kwargs):
+        pass
+
+    def locator(self, selector):
+        return FakeLocator(self, selector)
+
+
+def test_open_portal_accepts_page_without_buttons():
+    # Logged in with no class to check in to: the UI renders but has no buttons.
+    page = FakePortalPage(ok.PORTAL_UI)
+    run(ok.open_portal(page))
+    assert page.waits == [ok.PORTAL_UI, ok.VISIBLE_CAPTION]
+
+    run(ok.open_portal(FakePortalPage(ok.PORTAL_UI, ok.VISIBLE_CAPTION)))
+
+
+def test_open_portal_times_out_when_ui_never_renders():
+    with pytest.raises(ok.PlaywrightTimeout):
+        run(ok.open_portal(FakePortalPage()))
+
+
 class FakeContext:
     async def new_page(self):
         return object()
